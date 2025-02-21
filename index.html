@@ -3,110 +3,313 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code Generator</title>
+    <title>QR Code Generator & Scanner</title>
+    <!-- Include required libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
             font-family: Arial, sans-serif;
-            text-align: center;
-            margin: 20px;
-        }
-        .container {
-            max-width: 400px;
-            margin: auto;
+            max-width: 800px;
+            margin: 20px auto;
             padding: 20px;
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
         }
-        input {
-            width: calc(100% - 20px);
-            padding: 10px;
-            font-size: 16px;
-            margin-top: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
+
+        .tab-container {
+            margin-bottom: 20px;
         }
-        button {
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            font-size: 16px;
-            background-color: #007bff;
-            color: white;
+
+        .tab-button {
+            padding: 10px 20px;
+            background: #ddd;
             border: none;
-            border-radius: 5px;
             cursor: pointer;
+            font-size: 16px;
         }
-        button:hover {
-            background-color: #0056b3;
+
+        .tab-button.active {
+            background: #4CAF50;
+            color: white;
         }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
         #qrcode {
             margin-top: 20px;
+            text-align: center;
+        }
+
+        .download-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .download-buttons button {
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .download-buttons button:hover {
+            background: #45a049;
+        }
+
+        #scan-result {
+            margin-top: 20px;
             padding: 10px;
-            background: white;
+            border: 1px solid #ddd;
+            min-height: 50px;
+            border-radius: 4px;
         }
     </style>
 </head>
 <body>
-
-    <h2>QR Code Generator</h2>
-    <div class="container">
-        <input type="text" id="text-input" placeholder="Enter text or URL..." oninput="generateQRCode()">
-        <div id="qrcode"></div>
-        <button id="download-btn" onclick="downloadQRCode()" style="display: none;">Download QR Code</button>
+    <div class="tab-container">
+        <button class="tab-button active" onclick="switchTab('generator')">QR Generator</button>
+        <button class="tab-button" onclick="switchTab('scanner')">QR Scanner</button>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Generator Tab -->
+    <div id="generator" class="tab-content active">
+        <select id="qrType" onchange="updateInputFields()" class="qr-type-select">
+            <option value="url">URL (Social Media)</option>
+            <option value="wifi">Wi-Fi</option>
+            <option value="contact">Contact</option>
+            <option value="upi">UPI Payment</option>
+        </select>
+
+        <div id="inputFields">
+            <!-- Dynamic input fields will be inserted here -->
+        </div>
+
+        <div id="qrcode"></div>
+        <div class="download-buttons">
+            <button onclick="downloadQR('png')">Download PNG</button>
+            <button onclick="downloadQR('jpeg')">Download JPG</button>
+        </div>
+    </div>
+
+    <!-- Scanner Tab -->
+    <div id="scanner" class="tab-content">
+        <input type="file" id="fileInput" accept="image/*">
+        <div id="scan-result"></div>
+    </div>
+
     <script>
-        let qrContainer = document.getElementById("qrcode");
-        let downloadBtn = document.getElementById("download-btn");
+        let currentQR = null;
+        let lastUpdate = 0;
+        const DEBOUNCE_TIME = 300;
 
-        function generateQRCode() {
-            let text = document.getElementById("text-input").value.trim();
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
 
-            // Clear existing QR code before generating a new one
-            qrContainer.innerHTML = "";
+        function updateInputFields() {
+            const type = document.getElementById('qrType').value;
+            let html = '';
 
-            if (text !== "") {
-                let qr = new QRCode(qrContainer, {
-                    text: text,
-                    width: 200,
-                    height: 200
-                });
-                downloadBtn.style.display = "block"; // Show download button
+            switch(type) {
+                case 'url':
+                    html = `
+                        <div class="input-group">
+                            <label>URL:</label>
+                            <input type="url" id="url" placeholder="https://example.com" 
+                                   value="https://example.com" oninput="scheduleQRUpdate()">
+                        </div>
+                    `;
+                    break;
+                case 'wifi':
+                    html = `
+                        <div class="input-group">
+                            <label>SSID:</label>
+                            <input type="text" id="ssid" placeholder="Network name" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Password:</label>
+                            <input type="text" id="password" placeholder="Network password" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Encryption:</label>
+                            <select id="encryption" onchange="scheduleQRUpdate()">
+                                <option value="WPA">WPA/WPA2</option>
+                                <option value="WEP">WEP</option>
+                                <option value="nopass">No Encryption</option>
+                            </select>
+                        </div>
+                    `;
+                    break;
+                case 'contact':
+                    html = `
+                        <div class="input-group">
+                            <label>Name:</label>
+                            <input type="text" id="name" placeholder="John Doe" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Phone:</label>
+                            <input type="tel" id="phone" placeholder="+1234567890" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Email:</label>
+                            <input type="email" id="email" placeholder="john@example.com" oninput="scheduleQRUpdate()">
+                        </div>
+                    `;
+                    break;
+                case 'upi':
+                    html = `
+                        <div class="input-group">
+                            <label>UPI ID:</label>
+                            <input type="text" id="upiId" placeholder="1234567890@upi" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Amount:</label>
+                            <input type="number" id="amount" placeholder="Optional" oninput="scheduleQRUpdate()">
+                        </div>
+                        <div class="input-group">
+                            <label>Note:</label>
+                            <input type="text" id="note" placeholder="Optional" oninput="scheduleQRUpdate()">
+                        </div>
+                    `;
+                    break;
+            }
+
+            document.getElementById('inputFields').innerHTML = html;
+            generateQR();
+        }
+
+        function scheduleQRUpdate() {
+            const now = Date.now();
+            if (now - lastUpdate > DEBOUNCE_TIME) {
+                generateQR();
+                lastUpdate = now;
             } else {
-                downloadBtn.style.display = "none"; // Hide download button if input is empty
+                setTimeout(generateQR, DEBOUNCE_TIME);
             }
         }
 
-        function downloadQRCode() {
-            let qrCanvas = qrContainer.querySelector("canvas");
-            if (!qrCanvas) return;
+        function generateQR() {
+            const type = document.getElementById('qrType').value;
+            let qrData = '';
 
-            // Create a new canvas with a white background
-            let newCanvas = document.createElement("canvas");
-            let ctx = newCanvas.getContext("2d");
+            switch(type) {
+                case 'url':
+                    qrData = document.getElementById('url').value;
+                    break;
+                case 'wifi':
+                    const ssid = document.getElementById('ssid').value;
+                    const password = document.getElementById('password').value;
+                    const encryption = document.getElementById('encryption').value;
+                    qrData = `WIFI:S:${ssid};T:${encryption};P:${password};;`;
+                    break;
+                case 'contact':
+                    const name = document.getElementById('name').value;
+                    const phone = document.getElementById('phone').value;
+                    const email = document.getElementById('email').value;
+                    qrData = `BEGIN:VCARD\nVERSION:3.0\nFN:${name}\nTEL:${phone}\nEMAIL:${email}\nEND:VCARD`;
+                    break;
+                case 'upi':
+                    const upiId = document.getElementById('upiId').value;
+                    const amount = document.getElementById('amount').value;
+                    const note = document.getElementById('note').value;
+                    qrData = `upi://pay?pa=${upiId}${amount ? `&am=${amount}` : ''}${note ? `&tn=${note}` : ''}`;
+                    break;
+            }
 
-            // Set canvas size same as QR code
-            newCanvas.width = qrCanvas.width;
-            newCanvas.height = qrCanvas.height;
+            if (qrData) {
+                const qrElement = document.getElementById('qrcode');
+                qrElement.innerHTML = '';
+                currentQR = new QRCode(qrElement, {
+                    text: qrData,
+                    width: 200,
+                    height: 200,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+        }
 
-            // Fill with white background
-            ctx.fillStyle = "#FFFFFF";
-            ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
-
-            // Draw the QR code on top
-            ctx.drawImage(qrCanvas, 0, 0);
-
-            // Download as image
-            let link = document.createElement("a");
-            link.href = newCanvas.toDataURL("image/png");
-            link.download = "qrcode.png";
+        function downloadQR(format) {
+            if (!currentQR) return;
+            
+            const canvas = document.querySelector('#qrcode canvas');
+            const img = canvas.toDataURL(`image/${format}`);
+            const link = document.createElement('a');
+            link.download = `qrcode.${format}`;
+            link.href = img;
             link.click();
         }
-    </script>
 
+        // QR Scanning functionality
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const code = jsQR(imageData.data, imageData.width, imageData.height);
+                    
+                    if (code) {
+                        document.getElementById('scan-result').textContent = code.data;
+                    } else {
+                        document.getElementById('scan-result').textContent = 'No QR code found';
+                    }
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Initialize generator with default values
+        updateInputFields();
+    </script>
 </body>
 </html>
